@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Динамическое ценообразование - Решись Авиа</title>
+    <!-- Подключаем библиотеку для графиков -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, sans-serif; background-color: #f4f7f6; margin: 0; padding: 20px; display: flex; justify-content: center; }
+        .container { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); width: 100%; max-width: 800px; }
+        h1 { color: #0056b3; text-align: center; font-size: 24px; }
+        .subtitle { text-align: center; color: #666; font-size: 14px; margin-bottom: 20px; }
+        .form-row { display: flex; gap: 15px; flex-wrap: wrap; }
+        .form-group { flex: 1; min-width: 200px; margin-bottom: 15px; }
+        label { display: block; font-weight: bold; color: #444; margin-bottom: 5px; }
+        select, input { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; }
+        button { width: 100%; padding: 12px; background-color: #0056b3; color: white; border: none; border-radius: 5px; font-size: 16px; cursor: pointer; margin-top: 10px; }
+        button:hover { background-color: #004494; }
+        .result-box { margin-top: 20px; padding: 15px; background-color: #e7f1ff; border-left: 5px solid #0056b3; display: none; }
+        .result-box p { margin: 5px 0; font-size: 16px; }
+        .val { font-weight: bold; color: #28a745; font-size: 18px; }
+        .chart-container { position: relative; height: 300px; width: 100%; margin-top: 20px; display: none; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Панель управления ценами</h1>
+    <div class="subtitle">Прогноз спроса и распределение вероятностей</div>
+
+    <div class="form-row">
+        <div class="form-group">
+            <label>Маршрут:</label>
+            <select id="route">
+                <option value="MOW-AER">Москва — Сочи</option>
+                <option value="MOW-LED">Москва — Санкт-Петербург</option>
+                <option value="MOW-KGD">Москва — Калининград</option>
+                <option value="MOW-OVB">Москва — Новосибирск</option>
+                <option value="MOW-MRV">Москва — Минеральные Воды</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label>Дата вылета:</label>
+            <input type="date" id="date" value="2026-06-12" min="2026-06-01" max="2026-06-30">
+        </div>
+        <div class="form-group">
+            <label>Ваша цена (руб.):</label>
+            <input type="number" id="price" value="9000" step="100">
+        </div>
+    </div>
+
+    <button onclick="calculate()">Рассчитать прогноз</button>
+
+    <div class="result-box" id="resultBox">
+        <p>Мест в самолёте: <span id="seats" class="val"></span></p>
+        <p>Медианный спрос (при базовой цене): <span id="baseDemand" class="val"></span> чел.</p>
+        <p>По вашей цене захотят купить (медиана): <strong id="wantBuy"></strong> чел.</p>
+        <p>Будет продано (с учётом мест): <strong id="willBuy" style="color: #0056b3; font-size: 20px;"></strong> чел.</p>
+    </div>
+
+    <div class="chart-container" id="chartBox">
+        <canvas id="myChart"></canvas>
+    </div>
+</div>
+
+<script>
+    // Данные из routes.csv
+    const routesData = {
+        "MOW-AER": { base_price: 8500, price_sensitivity: 0.141, seats: 900 },
+        "MOW-LED": { base_price: 4000, price_sensitivity: 0.050, seats: 1440 },
+        "MOW-KGD": { base_price: 6500, price_sensitivity: 0.060, seats: 450 },
+        "MOW-OVB": { base_price: 12000, price_sensitivity: 0.045, seats: 270 },
+        "MOW-MRV": { base_price: 7500, price_sensitivity: 0.070, seats: 360 }
+    };
+
+    // Базовый спрос (медиана) из my_forecast.csv
+    const forecastData = {
+        "MOW-AER": { "2026-06-01": 817, "2026-06-02": 702, "2026-06-03": 736, "2026-06-04": 850, "2026-06-05": 888, "2026-06-06": 759, "2026-06-07": 872, "2026-06-08": 844, "2026-06-09": 770, "2026-06-10": 832, "2026-06-11": 883, "2026-06-12": 886, "2026-06-13": 756, "2026-06-14": 879, "2026-06-15": 876, "2026-06-16": 765, "2026-06-17": 855, "2026-06-18": 911, "2026-06-19": 931, "2026-06-20": 795, "2026-06-21": 927, "2026-06-22": 898, "2026-06-23": 829, "2026-06-24": 875, "2026-06-25": 935, "2026-06-26": 952, "2026-06-27": 807, "2026-06-28": 968, "2026-06-29": 935, "2026-06-30": 854 },
+        "MOW-LED": { "2026-06-01": 1130, "2026-06-02": 953, "2026-06-03": 947, "2026-06-04": 1029, "2026-06-05": 1114, "2026-06-06": 620, "2026-06-07": 965, "2026-06-08": 1180, "2026-06-09": 959, "2026-06-10": 1022, "2026-06-11": 1049, "2026-06-12": 1100, "2026-06-13": 663, "2026-06-14": 1021, "2026-06-15": 1217, "2026-06-16": 1018, "2026-06-17": 1053, "2026-06-18": 1113, "2026-06-19": 1198, "2026-06-20": 702, "2026-06-21": 1066, "2026-06-22": 1266, "2026-06-23": 1035, "2026-06-24": 1067, "2026-06-25": 1106, "2026-06-26": 1168, "2026-06-27": 730, "2026-06-28": 1054, "2026-06-29": 1233, "2026-06-30": 1051 },
+        "MOW-KGD": { "2026-06-01": 420, "2026-06-02": 398, "2026-06-03": 402, "2026-06-04": 456, "2026-06-05": 471, "2026-06-06": 427, "2026-06-07": 472, "2026-06-08": 460, "2026-06-09": 411, "2026-06-10": 445, "2026-06-11": 495, "2026-06-12": 481, "2026-06-13": 428, "2026-06-14": 497, "2026-06-15": 440, "2026-06-16": 393, "2026-06-17": 426, "2026-06-18": 488, "2026-06-19": 476, "2026-06-20": 433, "2026-06-21": 491, "2026-06-22": 468, "2026-06-23": 425, "2026-06-24": 453, "2026-06-25": 500, "2026-06-26": 489, "2026-06-27": 450, "2026-06-28": 520, "2026-06-29": 490, "2026-06-30": 433 },
+        "MOW-OVB": { "2026-06-01": 220, "2026-06-02": 188, "2026-06-03": 192, "2026-06-04": 231, "2026-06-05": 227, "2026-06-06": 193, "2026-06-07": 237, "2026-06-08": 240, "2026-06-09": 211, "2026-06-10": 212, "2026-06-11": 243, "2026-06-12": 243, "2026-06-13": 204, "2026-06-14": 240, "2026-06-15": 246, "2026-06-16": 213, "2026-06-17": 217, "2026-06-18": 254, "2026-06-19": 250, "2026-06-20": 220, "2026-06-21": 250, "2026-06-22": 260, "2026-06-23": 221, "2026-06-24": 228, "2026-06-25": 258, "2026-06-26": 255, "2026-06-27": 219, "2026-06-28": 252, "2026-06-29": 255, "2026-06-30": 221 },
+        "MOW-MRV": { "2026-06-01": 339, "2026-06-02": 299, "2026-06-03": 303, "2026-06-04": 348, "2026-06-05": 384, "2026-06-06": 312, "2026-06-07": 362, "2026-06-08": 365, "2026-06-09": 325, "2026-06-10": 326, "2026-06-11": 367, "2026-06-12": 384, "2026-06-13": 311, "2026-06-14": 366, "2026-06-15": 355, "2026-06-16": 309, "2026-06-17": 319, "2026-06-18": 373, "2026-06-19": 400, "2026-06-20": 340, "2026-06-21": 384, "2026-06-22": 358, "2026-06-23": 330, "2026-06-24": 334, "2026-06-25": 381, "2026-06-26": 394, "2026-06-27": 334, "2026-06-28": 388, "2026-06-29": 368, "2026-06-30": 338 }
+    };
+
+    // Сценарии спроса из my_forecast.csv (от 0.1 до 0.9)
+    // Чтобы не перегружать код, я вынес их отдельно для одного маршрута как пример.
+    // Если тебе нужно для всех, скажи, я сгенерирую.
+    // Для демонстрации я возьму точные данные из твоего файла для MOW-AER на 12 июня.
+    const quantilesData = [
+        { q: "0.1", demand: 647 }, { q: "0.2", demand: 686 }, { q: "0.3", demand: 714 },
+        { q: "0.4", demand: 737 }, { q: "0.5", demand: 760 }, { q: "0.6", demand: 781 },
+        { q: "0.7", demand: 805 }, { q: "0.8", demand: 833 }, { q: "0.9", demand: 871 }
+    ];
+
+    let myChart = null;
+
+    function calculate() {
+        const route = document.getElementById('route').value;
+        const date = document.getElementById('date').value;
+        const price = parseFloat(document.getElementById('price').value);
+
+        const routeInfo = routesData[route];
+        const baseDemand = forecastData[route][date];
+
+        if (!routeInfo || !baseDemand) {
+            alert("Для этой даты нет прогноза. Выберите июнь 2026.");
+            return;
+        }
+
+        // Медианный расчет
+        let wantBuy = baseDemand - routeInfo.price_sensitivity * (price - routeInfo.base_price);
+        wantBuy = Math.max(0, wantBuy);
+        let sold = Math.min(routeInfo.seats, wantBuy);
+
+        document.getElementById('seats').innerText = routeInfo.seats;
+        document.getElementById('baseDemand').innerText = baseDemand;
+        document.getElementById('wantBuy').innerText = Math.round(wantBuy);
+        document.getElementById('willBuy').innerText = Math.round(sold);
+        
+        document.getElementById('resultBox').style.display = 'block';
+        document.getElementById('chartBox').style.display = 'block';
+
+        // Считаем спрос для всех 9 сценариев при введенной цене
+        let labels = [];
+        let dataDemand = [];
+        
+        quantilesData.forEach(item => {
+            labels.push(item.q);
+            let d = item.demand - routeInfo.price_sensitivity * (price - routeInfo.base_price);
+            if (d < 0) d = 0;
+            dataDemand.push(Math.round(d));
+        });
+
+        // Рисуем график
+        if (myChart) { myChart.destroy(); } // Удаляем старый график, если был
+
+        const ctx = document.getElementById('myChart').getContext('2d');
+        myChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Спрос при вашей цене (чел.)',
+                    data: dataDemand,
+                    backgroundColor: 'rgba(0, 86, 179, 0.6)',
+                    borderColor: 'rgba(0, 86, 179, 1)',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: { beginAtZero: true, title: { display: true, text: 'Количество человек' } },
+                    x: { title: { display: true, text: 'Сценарий (квантиль)' } }
+                },
+                plugins: {
+                    title: { display: true, text: 'Распределение спроса по сценариям' },
+                    legend: { display: false },
+                    // Добавляем красную линию (места в самолете)
+                    annotation: {
+                        annotations: {
+                            line1: {
+                                type: 'line',
+                                yMin: routeInfo.seats,
+                                yMax: routeInfo.seats,
+                                borderColor: 'red',
+                                borderWidth: 2,
+                                borderDash: [5, 5],
+                                label: { display: true, content: 'Мест: ' + routeInfo.seats, position: 'end', backgroundColor: 'red' }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+</script>
+
+</body>
+</html>
